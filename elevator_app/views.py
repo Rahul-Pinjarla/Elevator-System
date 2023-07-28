@@ -92,12 +92,18 @@ class MoveElevator(APIView, GetElevatorSystemInstanceMixin):
             next_stop.to_station if next_stop.to_station else next_stop.from_station
         )
         served_reqs = ElevatorRequest.objects.filter(
-            Q(to_station=reached_station)
-            | Q(from_station=reached_station) & Q(served_on=None)
+            (Q(to_station=reached_station) | Q(from_station=reached_station))
+            & Q(served_on=None)
         )
         served_reqs.update(served_on=timezone.now())
         for req in served_reqs:
-            req.save()
+            if req.to_station:
+                if req.to_station.under_maintenance_since is None:
+                    req.save()
+            if req.from_station:
+                if req.from_station.under_maintenance_since is None:
+                    req.save()
+
         elevator_system.curr_direction = direction
         elevator_system.curr_station = reached_station
         elevator_system.save()
@@ -124,6 +130,14 @@ class CallElevator(APIView, GetElevatorSystemInstanceMixin):
                 }
             )
         from_station = stations.filter(floor_no=from_floor_no).first()
+        if not from_station:
+            data = ElevatorSystemIntanceSerializer(elevator_system).data
+            return Response(
+                {
+                    "message": f"This Elevator System has only {elevator_system.stations_count} stations/floors.",
+                    "Elevator Current State": data,
+                }
+            )
         if from_station.under_maintenance_since:
             return Response(
                 {
@@ -151,6 +165,14 @@ class SelectFloorView(APIView, GetElevatorSystemInstanceMixin):
         stations = ElevatorStation.objects.filter(elevator_system=elevator_system).all()
         to_station = stations.filter(floor_no=to_floor_no).first()
         data = ElevatorSystemIntanceSerializer(elevator_system).data
+        if not to_station:
+            data = ElevatorSystemIntanceSerializer(elevator_system).data
+            return Response(
+                {
+                    "message": f"This Elevator System has only {elevator_system.stations_count} stations/floors.",
+                    "Elevator Current State": data,
+                }
+            )
         if to_station.under_maintenance_since:
             return Response(
                 {
@@ -206,12 +228,13 @@ class MarkStationUnderMaintenanceView(APIView, GetElevatorSystemInstanceMixin):
             data = ElevatorSystemIntanceSerializer(elevator_system).data
             return Response(
                 {
-                    "message": f"This Elevator System has only {elevator_system.stations_count} stations.",
+                    "message": f"This Elevator System has only {elevator_system.stations_count} stations/floors.",
                     "Elevator Current State": data,
                 }
             )
-        if flag:
-            station.under_maintenance_since = timezone.now()
+        if flag == "true/":
+            if not station.under_maintenance_since:
+                station.under_maintenance_since = timezone.now()
         else:
             station.under_maintenance_since = None
         station.save()
