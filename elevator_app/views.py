@@ -1,6 +1,7 @@
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
 from django.utils import timezone
-from rest_framework.generics import ListCreateAPIView, GenericAPIView
+from rest_framework.generics import GenericAPIView
 from rest_framework.mixins import RetrieveModelMixin, ListModelMixin
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from rest_framework.views import APIView
@@ -9,17 +10,20 @@ from .serializers import (
     ElevatorSystemIntanceSerializer,
     MiniElevatorSystemSerializer,
     ElevatorRequestIntanceSerializer,
+    ElevatorStationDetailSerializer,
 )
 from .models import ElevatorSystem, ElevatorRequest, ElevatorStation
 from .elevator_logic import ElevatorLogic
 
 
-class GetElevatorSystemInstanceMixin(RetrieveModelMixin):
-    queryset = ElevatorSystem.objects.all()
-    serializer_class = ElevatorSystemIntanceSerializer
-
+class RetrieveIsGetMixin:
     def get(self, request, *args, **kwargs):
         return self.retrieve(request, *args, **kwargs)
+
+
+class GetElevatorSystemInstanceMixin(RetrieveModelMixin, RetrieveIsGetMixin):
+    queryset = ElevatorSystem.objects.all()
+    serializer_class = ElevatorSystemIntanceSerializer
 
     def get_object(request):
         elevator_system = get_object_or_404(
@@ -31,7 +35,7 @@ class GetElevatorSystemInstanceMixin(RetrieveModelMixin):
         return self.serializer_class(instance)
 
 
-class GetElevatorSystemListMixin(ListModelMixin):
+class GetElevatorSystemListMixin(ListModelMixin, RetrieveIsGetMixin):
     queryset = ElevatorSystem.objects.all()
     serializer_class = MiniElevatorSystemSerializer
 
@@ -40,8 +44,12 @@ class GetElevatorSystemListMixin(ListModelMixin):
 
 
 class ElevatorSystemInstanceView(GetElevatorSystemInstanceMixin, GenericAPIView):
-    queryset = ElevatorSystem.objects.all()
-    serializer_class = ElevatorSystemIntanceSerializer
+    pass
+
+
+class ElevatorReqModelVS(ReadOnlyModelViewSet):
+    queryset = ElevatorRequest.objects.all()
+    serializer_class = ElevatorRequestIntanceSerializer
 
 
 class ElevatorSystemsView(GetElevatorSystemListMixin, GenericAPIView):
@@ -76,18 +84,19 @@ class MoveElevator(APIView, GetElevatorSystemInstanceMixin):
             data = ElevatorSystemIntanceSerializer(elevator_system).data
             return Response(
                 {
-                    "message": "There are not requests to move the elevator, Use call or select elevators and try again!",
+                    "message": "There are no requests to move the elevator, Use call or select elevators and try again!",
                     "Elevator Current State": data,
                 }
             )
         reached_station = (
-            next_stop.to_station if next_stop.to_station else next_stop.station_no
+            next_stop.to_station if next_stop.to_station else next_stop.from_station
         )
         served_reqs = ElevatorRequest.objects.filter(
-            to_station=reached_station, served_on=None
-        ).all()
+            Q(to_station=reached_station)
+            | Q(from_station=reached_station) & Q(served_on=None)
+        )
+        served_reqs.update(served_on=timezone.now())
         for req in served_reqs:
-            req.served_on = timezone.now()
             req.save()
         elevator_system.curr_direction = direction
         elevator_system.curr_station = reached_station
@@ -106,8 +115,8 @@ class CallElevator(APIView, GetElevatorSystemInstanceMixin):
         elevator_system = get_object_or_404(ElevatorSystem, pk=pk)
         curr_station = elevator_system.curr_station
         stations = ElevatorStation.objects.filter(elevator_system=elevator_system).all()
+        data = ElevatorSystemIntanceSerializer(elevator_system).data
         if curr_station.floor_no == from_floor_no:
-            data = ElevatorSystemIntanceSerializer(elevator_system).data
             return Response(
                 {
                     "message": f"Elevator is already on the floor #{curr_station.floor_no}! You can select the destionation floor now!",
@@ -115,6 +124,13 @@ class CallElevator(APIView, GetElevatorSystemInstanceMixin):
                 }
             )
         from_station = stations.filter(floor_no=from_floor_no).first()
+        if from_station.under_maintenance_since:
+            return Response(
+                {
+                    "message": f"Sorry! This floor #{curr_station.floor_no} elevator station is under maintenance!",
+                    "Elevator Current State": data,
+                }
+            )
         new_elevator_req = ElevatorRequest(
             from_station=from_station, elevator_system=elevator_system
         )
@@ -128,14 +144,21 @@ class CallElevator(APIView, GetElevatorSystemInstanceMixin):
         )
 
 
-class SelectFloor(APIView, GetElevatorSystemInstanceMixin):
+class SelectFloorView(APIView, GetElevatorSystemInstanceMixin):
     def patch(self, request, pk, to_floor_no):
         elevator_system = get_object_or_404(ElevatorSystem, pk=pk)
         curr_station = elevator_system.curr_station
         stations = ElevatorStation.objects.filter(elevator_system=elevator_system).all()
         to_station = stations.filter(floor_no=to_floor_no).first()
+        data = ElevatorSystemIntanceSerializer(elevator_system).data
+        if to_station.under_maintenance_since:
+            return Response(
+                {
+                    "message": f"The selected floor #{curr_station.floor_no} station is under maintenance! Please select a different floor!",
+                    "Elevator Current State": data,
+                }
+            )
         if curr_station.floor_no == to_floor_no:
-            data = ElevatorSystemIntanceSerializer(elevator_system).data
             return Response(
                 {
                     "message": f"Elevator is already on the floor #{curr_station.floor_no}! Please select a different floor!",
@@ -164,8 +187,38 @@ class SelectFloor(APIView, GetElevatorSystemInstanceMixin):
         )
 
 
-class ElevatorRequestInstanceView(ReadOnlyModelViewSet):
-    def retrieve(self, request, pk=None):
-        elevator_req = get_object_or_404(ElevatorRequest, pk=pk)
-        data = ElevatorRequestIntanceSerializer(elevator_req).data
-        return Response(data)
+class ElevatorStationVS(ReadOnlyModelViewSet):
+    """
+    Elevator Station Read only view set
+    """
+
+    queryset = ElevatorStation.objects.all()
+    serializer_class = ElevatorStationDetailSerializer
+
+
+class MarkStationUnderMaintenanceView(APIView, GetElevatorSystemInstanceMixin):
+    def patch(self, request, pk, floor_no, flag):
+        elevator_system = get_object_or_404(ElevatorSystem, pk=pk)
+        station = ElevatorStation.objects.filter(
+            elevator_system=elevator_system, floor_no=floor_no
+        ).first()
+        if not station:
+            data = ElevatorSystemIntanceSerializer(elevator_system).data
+            return Response(
+                {
+                    "message": f"This Elevator System has only {elevator_system.stations_count} stations.",
+                    "Elevator Current State": data,
+                }
+            )
+        if flag:
+            station.under_maintenance_since = timezone.now()
+        else:
+            station.under_maintenance_since = None
+        station.save()
+        data = ElevatorSystemIntanceSerializer(elevator_system).data
+        return Response(
+            {
+                "message": f'Station at floor #{floor_no} is {"marked" if flag else "unmarked"} under maintenance!',
+                "Elevator Current State": data,
+            }
+        )
