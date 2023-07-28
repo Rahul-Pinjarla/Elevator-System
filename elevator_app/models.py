@@ -21,10 +21,6 @@ class TimeStampBaseModel(models.Model):
 
 
 class ElevatorSystem(TimeStampBaseModel):
-    """
-    Every time an elevator system is initialised it's record will be added to this Model
-    """
-
     stations_count = models.PositiveIntegerField()
     curr_station = models.ForeignKey(
         "ElevatorStation", on_delete=models.DO_NOTHING, null=True, blank=True
@@ -35,7 +31,13 @@ class ElevatorSystem(TimeStampBaseModel):
     building_name = models.CharField(max_length=100, default="Name Unkown")
 
     def get_pending_requests(self):
-        return ElevatorRequest.objects.filter(elevator_system=self, served_on=None)
+        nearest_floor_no_case = models.Case(
+            models.When(to_station=None, then="from_station__under_maintenance_since"),
+            default="to_station__under_maintenance_since",
+        )
+        return ElevatorRequest.objects.annotate(
+            nearest_floor_um=nearest_floor_no_case
+        ).filter(elevator_system=self, served_on=None, nearest_floor_um=None)
 
 
 class ElevatorStation(TimeStampBaseModel):
@@ -45,10 +47,6 @@ class ElevatorStation(TimeStampBaseModel):
 
 
 class ElevatorRequest(TimeStampBaseModel):
-    """
-    Every time an elevator get's a request it will be recorded here
-    """
-
     elevator_system = models.ForeignKey(ElevatorSystem, on_delete=models.CASCADE)
     from_station = models.ForeignKey(
         ElevatorStation, on_delete=models.CASCADE, related_name="from_station"
@@ -62,3 +60,7 @@ class ElevatorRequest(TimeStampBaseModel):
     )
     served_on = models.DateTimeField(blank=True, null=True, default=None)
     skip_count = models.PositiveIntegerField(default=0)
+
+    def record_skipped(self, *args, **kwargs):
+        self.skip_count = self.skip_count + 1
+        self.save()
