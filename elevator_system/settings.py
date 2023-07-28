@@ -11,14 +11,13 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
-import environ
-
-env = environ.Env()
-environ.Env.read_env("../.env")
+import environ, os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+env = environ.Env()
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
@@ -27,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env("DOCKER_DEBUG") == "True"
 
 ALLOWED_HOSTS = []
 
@@ -83,8 +82,8 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
         "NAME": env("DB_NAME"),
-        "USER": env("DB_NAME"),
-        "PASSWORD": env("DB_PASSWORD"),
+        "USER": env("DB_USER"),
+        "PASSWORD": "postgres",
         "HOST": env("DB_HOST"),
         "PORT": env("DB_PORT"),
     }
@@ -135,3 +134,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DATETIME_FORMAT": "%d-%m-%Y %H:%M",
 }
+
+# load your envs here
+
+SKIPS_ALLOWED_PER_REQ = env("SKIPS_ALLOWED_PER_REQUEST")
