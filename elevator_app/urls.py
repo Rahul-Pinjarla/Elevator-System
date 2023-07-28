@@ -4,8 +4,10 @@ from .views import (
     ElevatorSystemsView,
     MoveElevator,
     CallElevator,
-    SelectFloor,
-    ElevatorRequestInstanceView,
+    SelectFloorView,
+    ElevatorReqModelVS,
+    ElevatorStationVS,
+    MarkStationUnderMaintenanceView,
 )
 
 urlpatterns = [
@@ -20,7 +22,7 @@ urlpatterns = [
         name="elevator_systems",
     ),
     path(
-        "initialise-elevator-system",
+        "initiate-elevator-system",
         ElevatorSystemsView.as_view(),
         name="inititate_elevator_system",
     ),
@@ -32,12 +34,22 @@ urlpatterns = [
     ),
     path(
         "select-floor/<int:pk>/<int:to_floor_no>",
-        SelectFloor.as_view(),
+        SelectFloorView.as_view(),
         name="select_floor",
     ),
     path(
         "elevator-request/<int:pk>",
-        ElevatorRequestInstanceView.as_view(actions={"get": "retrieve"}),
+        ElevatorReqModelVS.as_view(actions={"get": "retrieve"}),
         name="elevator_request",
+    ),
+    path(
+        "elevator-station/<int:pk>",
+        ElevatorStationVS.as_view(actions={"get": "retrieve"}),
+        name="elevator_station",
+    ),
+    re_path(
+        r"mark-station-under-maintenance/(?P<pk>[0-9]+)/(?P<floor_no>[0-9]+)/(?P<flag>(true|false).)",
+        MarkStationUnderMaintenanceView.as_view(),
+        name="mark_station_under_maintenance",
     ),
 ]
