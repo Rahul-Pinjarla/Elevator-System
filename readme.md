@@ -24,6 +24,10 @@ This is a simple elevator system logic implemented in Python, and backed by `Dja
 - Every time someone selects a destination floor from within the elevator an elevator request will be saved or updated(if pending request exists).
 - The nearest pending request in the Elevator System's `curr_direction` will be next request to serve, if None, the lift checks pending requests in the opposite direction, and if found, changes direction and moves to the nearest pending request station.
 
+  - #### Pending Requests
+    - Pending requests are the requests which are yet to be served with a working elevator.
+    - Under maintenance elevator stations are excluded from pending requests.
+
 
 ## Features | API Reference
 NOTE: In the API references given below replace the `<type:key>` with your respective value.
@@ -75,6 +79,13 @@ for example:
     curl --location --request PATCH 'localhost:8000/elevator-app/move-elevator/<int:elevator_system_pk>'
     ```
     returns the current elevator system state with success/fail message.
+
+- Mark Elevator Under Maintenance
+  - Useful to mark or unmark an elevator station under maintenance.
+   ```
+    curl --location --request PATCH 'localhost:8000/elevator-app/mark-station-under-maintenance/<int:elevator-system-pk>/<int:floor_no>/<bool:flag>/'
+   ```
+    returns the current elevator system state with a success message.
 
 - Get APIs
   - Along with the functional APIs above, this system also contains some GET APIs using which we can get the details of Elevator Sytems, Elevator Stations and Elevator-requests.
